@@ -1,0 +1,95 @@
+# run libraries 
+library(Seurat)
+library(celldex)
+library(SingleR)
+library(DoubletFinder)
+
+merged_seurat_filtered <- readRDS("merged_seurat_filtered.rds")
+GSM.split <- SplitObject(merged_seurat_filtered, split.by = "Sample")
+
+for(i in 1:length(GSM.split)){
+  # print the sample we are on
+  print(paste0("Sample ",i))
+  
+  # Pre-process merged_seurat using standard seurat workflow
+  GSM.list <- NormalizeData(GSM.split[[i]], 
+                            normalization.method = "LogNormalize",
+                            scale.factor = 10000)
+  GSM.list <- FindVariableFeatures(GSM.list)
+  GSM.list <- ScaleData(GSM.list)
+  GSM.list <- RunPCA(GSM.list)
+
+  # Find significant PCs
+  stdv <- GSM.list[["pca"]]@stdev
+  sum.stdv <- sum(GSM.list[["pca"]]@stdev)
+  percent.stdv <- (stdv / sum.stdv) * 100
+  cumulative <- cumsum(percent.stdv)
+  co1 <- which(cumulative > 90 & percent.stdv < 5)[1]
+  co2 <- sort(which((percent.stdv[1:length(percent.stdv) - 1] - 
+                       percent.stdv[2:length(percent.stdv)]) > 0.1),
+              decreasing = T)[1] + 1
+  min.pc <- min(co1, co2)
+  
+  # finish pre-processing
+  GSM.list <- RunUMAP(GSM.list, dims = 1:min.pc, reduction = "pca")
+  GSM.list <- FindNeighbors(GSM.list, dims = 1:min.pc)
+  GSM.list <- FindClusters(GSM.list, resolution = 0.8)
+  
+  # pK identification (no ground-truth)
+  sweep.GSM.list <- paramSweep_v3(GSM.list, PCs = 1:min.pc, sct = FALSE)
+  sweep.stat <- summarizeSweep(sweep.GSM.list, GT = FALSE)
+  bcmvn <- find.pK(sweep.stat)
+  
+  # Optimal pK is the max of the bomodality coefficent (BCmvn) distribution
+  bcmvn.max <- bcmvn[which.max(bcmvn$BCmetric), ]
+  optimal.pk <- bcmvn.max$pK
+  optimal.pk <- as.numeric(levels(optimal.pk))[optimal.pk]
+  
+  ## Homotypic doublet proportion estimate
+  annotations <- GSM.list@meta.data$seurat_clusters
+  homotypic.prop <- modelHomotypic(annotations) 
+  nExp.poi <- round(optimal.pk * nrow(GSM.list@meta.data)) ## Assuming 7.5% doublet formation rate - tailor for your dataset
+  nExp.poi.adj <- round(nExp.poi * (1 - homotypic.prop))
+  
+  # run DoubletFinder
+  GSM.list <- doubletFinder_v3(seu = GSM.list,
+                               PCs = 1:min.pc,
+                               pK = optimal.pk,
+                               nExp = nExp.poi.adj)
+  metadata <- GSM.list@meta.data
+  colnames(metadata)[13] <- "doublet_finder"
+  GSM.list@meta.data <- metadata
+  
+  # subset and save
+  GSM.list.singlets <- subset(GSM.list, doublet_finder == "Singlet")
+  GSM.split[[i]] <- GSM.list.singlets
+  remove(GSM.list.singlets)
+}
+
+# converge GSM.split
+merged.GSM.singlets <- 
+  merge(x = GSM.split[[1]], y = c(GSM.split[[2]],GSM.split[[3]],GSM.split[[4]],GSM.split[[5]],
+        GSM.split[[6]],GSM.split[[7]],GSM.split[[8]],GSM.split[[9]],GSM.split[[10]],GSM.split[[11]],
+        GSM.split[[12]],GSM.split[[13]],GSM.split[[14]],GSM.split[[15]],GSM.split[[16]],GSM.split[[17]],
+        GSM.split[[18]],GSM.split[[19]],GSM.split[[20]],GSM.split[[21]],GSM.split[[22]],
+        GSM.split[[23]],GSM.split[[24]],GSM.split[[25]],GSM.split[[26]],GSM.split[[27]],GSM.split[[28]],
+        GSM.split[[29]],GSM.split[[30]],GSM.split[[31]],GSM.split[[32]],GSM.split[[33]],GSM.split[[34]],
+        GSM.split[[35]],GSM.split[[36]],GSM.split[[37]],GSM.split[[38]],GSM.split[[39]],GSM.split[[40]],
+        GSM.split[[41]],GSM.split[[42]],GSM.split[[43]],GSM.split[[44]],GSM.split[[45]],GSM.split[[46]],
+        GSM.split[[47]],GSM.split[[48]],GSM.split[[49]],GSM.split[[50]],GSM.split[[51]],GSM.split[[52]],
+        GSM.split[[53]],GSM.split[[54]],GSM.split[[55]],GSM.split[[56]],GSM.split[[57]],GSM.split[[58]],
+        GSM.split[[59]],GSM.split[[60]],GSM.split[[61]],GSM.split[[62]],GSM.split[[63]],GSM.split[[64]],
+        GSM.split[[65]],GSM.split[[66]],GSM.split[[67]],GSM.split[[68]],GSM.split[[69]],GSM.split[[70]],
+        GSM.split[[71]],GSM.split[[72]],GSM.split[[73]],GSM.split[[74]],GSM.split[[75]],GSM.split[[76]],
+        GSM.split[[77]],GSM.split[[78]],GSM.split[[79]],GSM.split[[80]],GSM.split[[81]],GSM.split[[82]],
+        GSM.split[[83]],GSM.split[[84]],GSM.split[[85]],GSM.split[[86]],GSM.split[[87]],GSM.split[[88]],
+        GSM.split[[89]],GSM.split[[90]],GSM.split[[91]],GSM.split[[92]],GSM.split[[93]],GSM.split[[94]],
+        GSM.split[[95]],GSM.split[[96]],GSM.split[[97]],GSM.split[[98]],GSM.split[[99]],GSM.split[[100]],
+        GSM.split[[101]],GSM.split[[102]],GSM.split[[103]],GSM.split[[104]],GSM.split[[105]],GSM.split[[106]],
+        GSM.split[[107]],GSM.split[[108]],GSM.split[[109]],GSM.split[[110]],GSM.split[[111]],GSM.split[[112]],
+        GSM.split[[113]],GSM.split[[114]],GSM.split[[115]],GSM.split[[116]],GSM.split[[117]],GSM.split[[118]],
+        GSM.split[[119]],GSM.split[[120]],GSM.split[[121]],GSM.split[[122]],GSM.split[[123]]), 
+        project = "HL.Endo")
+
+saveRDS(merged_singlets, "merged_singlets.rds")
+
